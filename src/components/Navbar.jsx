@@ -63,6 +63,7 @@ const adminMenuConfig = [
   { name: 'Quotation', href: '/admin/quotation', resource: 'admin' },
   { name: 'Purchase Order', href: '/admin/purchase-order', resource: 'admin' },
   { name: 'Invoice', href: '/admin/invoice', resource: 'admin' },
+  { name: 'Payment Entry', href: '/admin/payment-entry', resource: 'admin' },
   { name: 'Cash Voucher', href: '/admin/cash-voucher', resource: 'admin' },
   { name: 'Material Requisition', href: '/admin/material-requisition', resource: 'admin' },
   { name: 'Salary Sheet (Excel)', href: '/admin/salary-sheet', resource: 'admin' },
