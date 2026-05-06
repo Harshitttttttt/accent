@@ -31,6 +31,8 @@ export async function GET(request) {
         transaction_id VARCHAR(100),
         bank_name VARCHAR(255),
         remark TEXT,
+        invoice_no VARCHAR(100),
+        invoice_date DATE,
         created_by INT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -44,6 +46,8 @@ export async function GET(request) {
 		try { await db.execute("ALTER TABLE payment_entries ADD COLUMN payment_date DATE"); } catch (e) {}
 		try { await db.execute("ALTER TABLE payment_entries ADD COLUMN bank_name VARCHAR(255)"); } catch (e) {}
 		try { await db.execute("ALTER TABLE payment_entries CHANGE remarks remark TEXT"); } catch (e) {}
+		try { await db.execute("ALTER TABLE payment_entries ADD COLUMN invoice_no VARCHAR(100)"); } catch (e) {}
+		try { await db.execute("ALTER TABLE payment_entries ADD COLUMN invoice_date DATE"); } catch (e) {}
 
 		// Get entries with pagination
 		const [entries] = await db.execute(
@@ -128,8 +132,8 @@ export async function POST(request) {
 
 		await db.execute(
 			`INSERT INTO payment_entries (
-        id, company_name, city, receipt_no, receipt_date, amount, payment_date, transaction_id, bank_name, remark, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, company_name, city, receipt_no, receipt_date, amount, payment_date, transaction_id, bank_name, remark, invoice_no, invoice_date, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			[
 				id,
 				data.company_name || "",
@@ -141,6 +145,8 @@ export async function POST(request) {
 				data.transaction_id || "",
 				data.bank_name || "",
 				data.remark || "",
+				data.invoice_no || "",
+				data.invoice_date || null,
 				user.id || null,
 			],
 		);
@@ -192,7 +198,7 @@ export async function PUT(request) {
 
 		const [result] = await db.execute(
 			`UPDATE payment_entries SET
-        company_name = ?, city = ?, receipt_no = ?, receipt_date = ?, amount = ?, payment_date = ?, transaction_id = ?, bank_name = ?, remark = ?
+        company_name = ?, city = ?, receipt_no = ?, receipt_date = ?, amount = ?, payment_date = ?, transaction_id = ?, bank_name = ?, remark = ?, invoice_no = ?, invoice_date = ?
        WHERE id = ?`,
 			[
 				data.company_name || "",
@@ -204,6 +210,8 @@ export async function PUT(request) {
 				data.transaction_id || "",
 				data.bank_name || "",
 				data.remark || "",
+				data.invoice_no || "",
+				data.invoice_date || null,
 				data.id,
 			],
 		);

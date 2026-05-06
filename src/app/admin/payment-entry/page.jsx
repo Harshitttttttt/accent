@@ -13,6 +13,7 @@ import {
 	TrashIcon,
 	PlusIcon,
 	XMarkIcon,
+	PrinterIcon,
 } from "@heroicons/react/24/outline";
 
 const getTodayDateString = () => {
@@ -51,8 +52,11 @@ export default function PaymentEntryPage() {
 		transaction_id: "",
 		bank_name: "",
 		remark: "",
+		invoice_no: "",
+		invoice_date: "",
 	});
 	const [saving, setSaving] = useState(false);
+	const [printingId, setPrintingId] = useState(null);
 
 	// Fetch entries
 	const fetchEntries = useCallback(
@@ -149,6 +153,8 @@ export default function PaymentEntryPage() {
 				transaction_id: entry.transaction_id || "",
 				bank_name: entry.bank_name || "",
 				remark: entry.remark || "",
+				invoice_no: entry.invoice_no || "",
+				invoice_date: formatDateForInput(entry.invoice_date),
 			});
 		} else {
 			setEditingEntry(null);
@@ -162,6 +168,8 @@ export default function PaymentEntryPage() {
 				transaction_id: "",
 				bank_name: "",
 				remark: "",
+				invoice_no: "",
+				invoice_date: "",
 			});
 		}
 		setIsModalOpen(true);
@@ -232,6 +240,49 @@ export default function PaymentEntryPage() {
 		} catch (error) {
 			console.error("Error deleting payment entry:", error);
 			alert("An error occurred while deleting.");
+		}
+	};
+
+	const handlePrintReceipt = async (entry) => {
+		setPrintingId(entry.id || "modal");
+		console.log("Printing receipt for:", entry);
+
+		const payload = {
+			receipt_no: entry.receipt_no || "-",
+			receipt_date: entry.receipt_date || "-",
+			company_name: entry.company_name || "-",
+			amount: Number(entry.amount) || 0,
+			transaction_id: entry.transaction_id || "-",
+			payment_date: entry.payment_date || "-",
+			bank_name: entry.bank_name || "-",
+			remark: entry.remark || "-",
+			invoice_no: entry.invoice_no || "-",
+			invoice_date: entry.invoice_date || "-",
+		};
+
+		try {
+			const res = await fetch("/api/admin/payment-entries/get-receipt-pdf", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(payload),
+			});
+
+			if (!res.ok) throw new Error("Failed to generate PDF");
+
+			const blob = await res.blob();
+			const url = window.URL.createObjectURL(blob);
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = `Receipt_${entry.receipt_no || "Draft"}.pdf`;
+			document.body.appendChild(a);
+			a.click();
+			a.remove();
+			window.URL.revokeObjectURL(url);
+		} catch (error) {
+			console.error("PDF Error:", error);
+			alert("Failed to download receipt.");
+		} finally {
+			setPrintingId(null);
 		}
 	};
 
@@ -396,6 +447,18 @@ export default function PaymentEntryPage() {
 															title="Delete Entry"
 														>
 															<TrashIcon className="h-5 w-5" />
+														</button>
+														<button
+															onClick={() => handlePrintReceipt(entry)}
+															disabled={printingId === entry.id}
+															className="p-1.5 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors disabled:opacity-50"
+															title="Print Receipt"
+														>
+															{printingId === entry.id ? (
+																<ArrowPathIcon className="h-5 w-5 animate-spin" />
+															) : (
+																<PrinterIcon className="h-5 w-5" />
+															)}
 														</button>
 													</div>
 												</td>
@@ -606,6 +669,36 @@ export default function PaymentEntryPage() {
 									</div>
 								</div>
 
+								<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+									<div>
+										<label className="block text-sm font-medium text-gray-700 mb-1">
+											Invoice No
+										</label>
+										<input
+											type="text"
+											name="invoice_no"
+											disabled={isViewing}
+											value={formData.invoice_no}
+											onChange={handleChange}
+											className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500 disabled:bg-gray-100 disabled:text-gray-500"
+											placeholder="Enter invoice number"
+										/>
+									</div>
+									<div>
+										<label className="block text-sm font-medium text-gray-700 mb-1">
+											Invoice Date
+										</label>
+										<input
+											type="date"
+											name="invoice_date"
+											disabled={isViewing}
+											value={formData.invoice_date}
+											onChange={handleChange}
+											className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500 disabled:bg-gray-100 disabled:text-gray-500"
+										/>
+									</div>
+								</div>
+
 								<div>
 									<label className="block text-sm font-medium text-gray-700 mb-1">
 										Remark
@@ -622,6 +715,21 @@ export default function PaymentEntryPage() {
 								</div>
 
 								<div className="mt-5 sm:mt-6 sm:flex sm:flex-row-reverse border-t pt-4">
+									{isViewing && (
+										<button
+											type="button"
+											disabled={printingId === "modal"}
+											onClick={() => handlePrintReceipt({ ...formData, id: "modal" })}
+											className="w-full inline-flex justify-center rounded-lg border border-transparent shadow-sm px-4 py-2 bg-purple-600 text-base font-medium text-white hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50"
+										>
+											{printingId === "modal" ? (
+												<ArrowPathIcon className="h-5 w-5 mr-2 animate-spin" />
+											) : (
+												<PrinterIcon className="h-5 w-5 mr-2" />
+											)}
+											{printingId === "modal" ? "Printing..." : "Print Receipt"}
+										</button>
+									)}
 									{!isViewing && (
 										<button
 											type="submit"
