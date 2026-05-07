@@ -1,11 +1,41 @@
-import puppeteer from "puppeteer";
+import puppeteer from "puppeteer-core";
+import chromium from "@sparticuz/chromium";
 import { buildReceiptHTML, ReceiptData } from "@/utils/buildReceiptHTML";
 import { NextRequest } from "next/server";
+
+export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
 	const data: ReceiptData = await req.json();
 
-	const browser = await puppeteer.launch();
+	const viewport = {
+		deviceScaleFactor: 1,
+		hasTouch: false,
+		height: 1080,
+		isLandscape: true,
+		isMobile: false,
+		width: 1920,
+	};
+
+	const isVercel = process.env.VERCEL === "1";
+
+	const browser = await puppeteer.launch(
+		isVercel
+			? {
+					args: chromium.args,
+					defaultViewport: viewport,
+					executablePath: await chromium.executablePath(),
+					headless: true,
+				}
+			: {
+					headless: true,
+					defaultViewport: viewport,
+					// use system Chrome locally
+					executablePath:
+						"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+				},
+	);
+
 	const page = await browser.newPage();
 
 	const html = buildReceiptHTML(data);
