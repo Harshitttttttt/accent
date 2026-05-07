@@ -719,7 +719,9 @@ export default function PaymentEntryPage() {
 										<button
 											type="button"
 											disabled={printingId === "modal"}
-											onClick={() => handlePrintReceipt({ ...formData, id: "modal" })}
+											onClick={() =>
+												handlePrintReceipt({ ...formData, id: "modal" })
+											}
 											className="w-full inline-flex justify-center rounded-lg border border-transparent shadow-sm px-4 py-2 bg-purple-600 text-base font-medium text-white hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50"
 										>
 											{printingId === "modal" ? (
