@@ -10,3 +10,5 @@ Project > Edit Project
 - Receipt Date Defaults to today -->
 
 Create a Bank Master
+
+Activity Splits

@@ -38,6 +38,7 @@ async function doSchemaInit() {
     await Promise.all([
       initCompaniesTable(db),
       initUsersTable(db),
+      initBankMasterTable(db),
     ]);
     
     // Tables with foreign keys - run after base tables
@@ -281,6 +282,22 @@ async function initUserActivityAssignmentsTable(db) {
       INDEX idx_user_status (user_id, status),
       INDEX idx_project (project_id),
       INDEX idx_due_date (due_date)
+    )
+  `);
+}
+
+async function initBankMasterTable(db) {
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS bank_master (
+      BankID VARCHAR(36) PRIMARY KEY,
+      BankCode VARCHAR(10) UNIQUE,
+      BankName VARCHAR(255) NOT NULL,
+      IFSC_Prefix CHAR(4),
+      SWIFT_Code VARCHAR(11),
+      LEI_Code VARCHAR(20),
+      HeadOfficeAddress TEXT,
+      IsActive BOOLEAN DEFAULT TRUE,
+      CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 }

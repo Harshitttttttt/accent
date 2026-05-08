@@ -17,7 +17,8 @@ import {
   BanknotesIcon,
   CalendarDaysIcon,
   ChartBarSquareIcon,
-  ClipboardDocumentListIcon
+  ClipboardDocumentListIcon,
+  BuildingLibraryIcon
 } from '@heroicons/react/24/outline';
 
 export default function Sidebar() {
@@ -298,6 +299,9 @@ export default function Sidebar() {
             )}
             {canViewVendors && (
               <NavRow icon={BuildingOfficeIcon} label="Vendor Master" href="/vendors" active={pathname.startsWith('/vendors')} />
+            )}
+            {canViewCompanies && (
+              <NavRow icon={BuildingLibraryIcon} label="Bank Master" href="/masters/banks" active={pathname.startsWith('/masters/banks')} />
             )}
             {isAdmin && (
               <NavRow icon={CalendarDaysIcon} label="Holiday Master" href="/masters/holidays" active={pathname.startsWith('/masters/holidays')} />

@@ -37,6 +37,7 @@ export default function PaymentEntryPage() {
 	});
 	const [searchTerm, setSearchTerm] = useState("");
 	const [companies, setCompanies] = useState([]);
+	const [banks, setBanks] = useState([]);
 
 	// Modal state
 	const [isModalOpen, setIsModalOpen] = useState(false);
@@ -101,12 +102,25 @@ export default function PaymentEntryPage() {
 		}
 	}, []);
 
+	const fetchBanks = useCallback(async () => {
+		try {
+			const res = await fetch("/api/masters/banks?active=true");
+			const data = await res.json();
+			if (data.success) {
+				setBanks(data.data || []);
+			}
+		} catch (error) {
+			console.error("Error fetching banks:", error);
+		}
+	}, []);
+
 	useEffect(() => {
 		if (!authLoading && user) {
 			fetchEntries(1);
 			fetchCompanies();
+			fetchBanks();
 		}
-	}, [authLoading, user, fetchEntries, fetchCompanies]);
+	}, [authLoading, user, fetchEntries, fetchCompanies, fetchBanks]);
 
 	// Filter entries
 	const filteredEntries = entries.filter((e) => {
@@ -660,12 +674,18 @@ export default function PaymentEntryPage() {
 										<input
 											type="text"
 											name="bank_name"
+											list="bank-list"
 											disabled={isViewing}
 											value={formData.bank_name}
 											onChange={handleChange}
 											className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500 disabled:bg-gray-100 disabled:text-gray-500"
-											placeholder="Enter bank name"
+											placeholder="Enter or select bank name"
 										/>
+										<datalist id="bank-list">
+											{banks.map((b) => (
+												<option key={b.BankID} value={b.BankName} />
+											))}
+										</datalist>
 									</div>
 								</div>
 
