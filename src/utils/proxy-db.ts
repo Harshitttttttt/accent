@@ -137,15 +137,22 @@ export async function queryProxy<T = ProxyRow>(
 	sql: string,
 	params: ProxyParam[] = []
 ): Promise<T[]> {
-	const hyperdrive = (await getCloudflareBindings())?.HYPERDRIVE;
-	if (hyperdrive) {
-		const connection = await createWorkersConnection(hyperdrive);
+	const bindings = await getCloudflareBindings();
+	if (bindings?.HYPERDRIVE) {
+		const connection = await createWorkersConnection(bindings.HYPERDRIVE);
 		try {
 			const [rows] = await connection.execute(sql, params);
 			return rows as T[];
 		} finally {
 			await connection.end();
 		}
+	}
+	// On Workers there is no fallback: the DB_HOST var would point the proxy at
+	// 127.0.0.1 and burn the whole connect timeout on a database that is absent.
+	if (bindings) {
+		throw new Error(
+			'This Worker runs on Cloudflare but has no HYPERDRIVE binding — add it to wrangler.jsonc.'
+		);
 	}
 	const [rows] = await getPool().execute(sql, params);
 	return rows as T[];

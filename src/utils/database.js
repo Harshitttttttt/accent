@@ -89,9 +89,25 @@ async function createWorkersConnection(hyperdrive) {
 	return connection;
 }
 
+/**
+ * Build the "MySQL is not configured" error for a Workers deployment that
+ * has no HYPERDRIVE binding. Without this the code falls through to the Node
+ * path, reads the DB_HOST var (which defaults to 127.0.0.1) and spends the
+ * whole connect timeout failing to reach a database that is not there.
+ */
+function missingHyperdriveError() {
+	return new Error(
+		'This Worker runs on Cloudflare but has no HYPERDRIVE binding. ' +
+			'Add {"binding":"HYPERDRIVE","id":"<id>"} to wrangler.jsonc and create ' +
+			'the config with ' +
+			'npx wrangler hyperdrive create accent-mysql --connection-string="mysql://USER:PASS@HOST:PORT/DB"'
+	);
+}
+
 export async function dbConnect() {
-	const hyperdrive = (await getCloudflareBindings())?.HYPERDRIVE;
-	if (hyperdrive) return createWorkersConnection(hyperdrive);
+	const bindings = await getCloudflareBindings();
+	if (bindings?.HYPERDRIVE) return createWorkersConnection(bindings.HYPERDRIVE);
+	if (bindings) throw missingHyperdriveError();
 	const host = process.env.DB_HOST;
 	const port = Number(process.env.DB_PORT);
 	const env = process.env.NODE_ENV || 'development';
@@ -377,17 +393,18 @@ export async function withTransaction(fn) {
  * @returns {Promise<[any[], any]>}
  */
 export async function query(sql, params = []) {
-	const hyperdrive = (await getCloudflareBindings())?.HYPERDRIVE;
-	if (hyperdrive) {
+	const bindings = await getCloudflareBindings();
+	if (bindings?.HYPERDRIVE) {
 		// No pool on Workers: open one connection per call and close it in the
 		// same turn, exactly as the Hyperdrive pattern prescribes.
-		const conn = await createWorkersConnection(hyperdrive);
+		const conn = await createWorkersConnection(bindings.HYPERDRIVE);
 		try {
 			return await conn.execute(sql, params);
 		} finally {
 			await conn.end();
 		}
 	}
+	if (bindings) throw missingHyperdriveError();
 	await ensurePool();
 	return pool.execute(sql, params);
 }
