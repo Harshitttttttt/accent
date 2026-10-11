@@ -19,8 +19,5 @@
 	],
 	"browser": {
 		"binding": "BROWSER"
-	},
-	"limits": {
-		"cpu_ms": 20000
 	}
 }
