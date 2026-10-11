@@ -71,6 +71,27 @@ route, `/accent-logo.png` → `200 image/png` through the ASSETS binding,
 `/api/uploads` → `401`. Deployed verification still needs a
 `CLOUDFLARE_API_TOKEN`.
 
+The same run also exercised the whole public surface, which is what an
+anonymous visitor hits before the database exists at all: `/` → `307
+Location: /signin?from=%2F`, `/signin` → `200` with 15.7 KB of HTML carrying
+the ADR-0012 CSP and HSTS headers, `/api/login` → `500 {"success":false,
+"message":"Server error"}` in about a second.
+
+## Deploying before the database is ready fails loudly
+
+Wrangler reads `.env` and uploads `DB_HOST` / `DB_PORT` / `DEV_DB_*` as Worker
+vars. A deploy made before the Hyperdrive config exists would therefore resolve
+to the Node path, point mysql2 at `127.0.0.1` and spend the whole connect timeout
+failing to reach a database that is not there. `dbConnect()`, `query()` and
+`queryProxy()` now throw a message that names the binding and the `wrangler
+hyperdrive create` command when the bindings resolve (i.e. we are on Workers)
+but `HYPERDRIVE` is absent. Plain Node and the test suites never reach that
+branch, because `getCloudflareBindings()` returns `null` outside a request
+scope.
+
+Do not add the binding to `wrangler.jsonc` with a placeholder id to "make it
+build": `wrangler deploy` validates the config and fails on an unknown id.
+
 ## Build and deploy
 
 ```
