@@ -1,21 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextResponse } from 'next/server';
 
-const {
-	mockQuery,
-	mockWriteFile,
-	mockMkdir,
-	mockUnlink,
-	mockReadFile,
-	mockExistsSync,
-} = vi.hoisted(() => ({
-	mockQuery: vi.fn(),
-	mockWriteFile: vi.fn().mockResolvedValue(undefined),
-	mockMkdir: vi.fn().mockResolvedValue(undefined),
-	mockUnlink: vi.fn().mockResolvedValue(undefined),
-	mockReadFile: vi.fn().mockResolvedValue(Buffer.from('sample-file-content')),
-	mockExistsSync: vi.fn().mockReturnValue(true),
-}));
+const { mockQuery, mockWriteFile, mockUnlink, mockReadFile, mockExistsSync } =
+	vi.hoisted(() => ({
+		mockQuery: vi.fn(),
+		mockWriteFile: vi.fn().mockResolvedValue(undefined),
+		mockUnlink: vi.fn().mockResolvedValue(undefined),
+		mockReadFile: vi.fn().mockResolvedValue(Buffer.from('sample-file-content')),
+		mockExistsSync: vi.fn().mockReturnValue(true),
+	}));
 
 vi.mock('@/utils/database', () => ({
 	query: (...args: unknown[]) => mockQuery(...args),
@@ -51,35 +44,15 @@ vi.mock('@/utils/api-permissions', async (importOriginal) => {
 	};
 });
 
-vi.mock('fs/promises', async (importOriginal) => {
-	const actual = await importOriginal<typeof import('fs/promises')>();
-	return {
-		...actual,
-		default: {
-			...actual,
-			writeFile: (...args: unknown[]) => mockWriteFile(...args),
-			mkdir: (...args: unknown[]) => mockMkdir(...args),
-			unlink: (...args: unknown[]) => mockUnlink(...args),
-			readFile: (...args: unknown[]) => mockReadFile(...args),
-		},
-		writeFile: (...args: unknown[]) => mockWriteFile(...args),
-		mkdir: (...args: unknown[]) => mockMkdir(...args),
-		unlink: (...args: unknown[]) => mockUnlink(...args),
-		readFile: (...args: unknown[]) => mockReadFile(...args),
-	};
-});
-
-vi.mock('fs', async (importOriginal) => {
-	const actual = await importOriginal<typeof import('fs')>();
-	return {
-		...actual,
-		default: {
-			...actual,
-			existsSync: (...args: unknown[]) => mockExistsSync(...args),
-		},
-		existsSync: (...args: unknown[]) => mockExistsSync(...args),
-	};
-});
+// The route stores files exclusively through `@/lib/file-store`; mock that
+// seam so no bytes touch a real filesystem or KV while the storage KEY the
+// route computes is asserted exactly as before.
+vi.mock('@/lib/file-store', () => ({
+	storeFile: (...args: unknown[]) => mockWriteFile(...args),
+	readFileBytes: (...args: unknown[]) => mockReadFile(...args),
+	deleteFileBytes: (...args: unknown[]) => mockUnlink(...args),
+	fileExists: (...args: unknown[]) => mockExistsSync(...args),
+}));
 
 describe('SEC-06 & SEC-10 — Document Upload, IDOR, and Authenticated Downloads', () => {
 	beforeEach(() => {

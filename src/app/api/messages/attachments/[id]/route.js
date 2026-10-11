@@ -1,9 +1,7 @@
 import { dbConnect } from '@/utils/database';
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/utils/api-permissions';
-import { readFile } from 'fs/promises';
-import { existsSync } from 'fs';
-import path from 'path';
+import { readFileBytes, fileExists } from '@/lib/file-store';
 
 /**
  * GET /api/messages/attachments/[id]
@@ -73,22 +71,23 @@ export async function GET(request, { params }) {
 			);
 		}
 
-		// Read file
-		const filePath = path.join(
-			process.cwd(),
-			'private',
-			'message-attachments',
-			attachment.file_name
-		);
-
-		if (!existsSync(filePath)) {
+		// Read bytes from the store, keyed by a POSIX-style relative path
+		// (the file name is a server-generated UUID assigned at upload).
+		const key = `private/message-attachments/${attachment.file_name}`;
+		if (!(await fileExists(key))) {
 			return NextResponse.json(
 				{ success: false, error: 'File not found on server' },
 				{ status: 404 }
 			);
 		}
 
-		const fileBuffer = await readFile(filePath);
+		const fileBuffer = await readFileBytes(key);
+		if (fileBuffer === null) {
+			return NextResponse.json(
+				{ success: false, error: 'File not found on server' },
+				{ status: 404 }
+			);
+		}
 
 		// Return file with proper headers
 		return new NextResponse(fileBuffer, {

@@ -1,13 +1,10 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { NextResponse } from 'next/server';
-import puppeteer from 'puppeteer';
-import chromium from '@sparticuz/chromium';
 import { dbConnect } from '@/utils/database';
 import { escapeHtml } from '@/lib/escape-html';
 import { sanitizeRichText } from '@/lib/sanitize';
 import { blockNonLocalRequests } from '@/lib/pdf-request-guard';
-import { localPdfBrowserArgs } from '@/lib/pdf-browser-args';
+import { launchPdfBrowser, closePdfBrowser } from '@/lib/pdf-browser';
+import { readPublicAsset } from '@/lib/asset-reader';
 import {
 	ensurePermission,
 	RESOURCES,
@@ -317,24 +314,10 @@ export async function GET(request) {
 			width: 1240,
 		};
 
-		const isVercel = process.env.VERCEL === '1';
-		if (isVercel) {
-			browser = await puppeteer.launch({
-				args: chromium.args,
-				defaultViewport: viewport,
-				executablePath: await chromium.executablePath(),
-				headless: true,
-			});
-		} else {
-			// Use puppeteer's bundled Chromium – no executablePath needed
-			browser = await puppeteer.launch({
-				args: localPdfBrowserArgs(),
-				headless: true,
-				defaultViewport: viewport,
-			});
-		}
+		browser = await launchPdfBrowser();
 
 		const page = await browser.newPage();
+		await page.setViewport(viewport);
 		await page.emulateMediaType('print');
 		await blockNonLocalRequests(page);
 		await page.setContent(html, {
@@ -381,13 +364,7 @@ export async function GET(request) {
 			{ status: 500 }
 		);
 	} finally {
-		if (browser) {
-			try {
-				await browser.close();
-			} catch (closeError) {
-				console.error('Error closing browser:', closeError);
-			}
-		}
+		await closePdfBrowser();
 		if (connection) await connection.end();
 	}
 }
@@ -398,8 +375,7 @@ function sanitizeFileName(value) {
 
 async function getAccentLogoDataUri(origin) {
 	try {
-		const logoPath = join(process.cwd(), 'public', 'accent-logo.png');
-		const logoBuffer = await readFile(logoPath);
+		const logoBuffer = await readPublicAsset('accent-logo.png');
 		return `data:image/png;base64,${logoBuffer.toString('base64')}`;
 	} catch {
 		return `${origin}/accent-logo.png`;

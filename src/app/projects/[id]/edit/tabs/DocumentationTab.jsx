@@ -48,7 +48,7 @@ export default function DocumentationTab({
 							Upload
 							<input
 								type="file"
-								accept="image/*,.svg"
+								accept="image/png,image/jpeg,image/webp,image/gif"
 								multiple
 								onChange={handleInputDocumentFileUpload}
 								className="hidden"

@@ -10,9 +10,9 @@ const nextConfig: NextConfig = {
 		minimumCacheTTL: 60,
 	},
 
-	// Reduce bundle size by excluding large packages from server
+	// On Workers everything must be bundled, so these stay bundled rather than
+	// traced as external Node dependencies.
 	serverExternalPackages: [
-		'mysql2',
 		'sharp',
 		'exceljs',
 		'jspdf',

@@ -1,5 +1,7 @@
 import fs from 'fs';
 import mysql from 'mysql2/promise';
+import type { HyperdriveConfig } from './cloudflare-runtime.js';
+import { getCloudflareBindings } from './cloudflare-runtime.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Proxy-local MySQL pool (ADR-0011)
@@ -101,6 +103,31 @@ function getPool(): mysql.Pool {
 export type ProxyParam = string | number | boolean | Date | null;
 
 /**
+ * Cloudflare Workers connection for the proxy.
+ *
+ * The Node pool below is per-instance and owns real sockets; on Workers a pool
+ * would hold one connection per isolate for as long as the isolate lives.
+ * Hyperdrive owns the pool upstream, so the proxy opens and closes one
+ * connection per statement exactly like the route handlers do.
+ *
+ * `disableEval` is mandatory on Workers: mysql2 builds its SQL parser with
+ * eval(), which workerd forbids. The static parser is equivalent.
+ */
+async function createWorkersConnection(hyperdrive: HyperdriveConfig) {
+	const connection = await mysql.createConnection({
+		host: hyperdrive.host,
+		port: hyperdrive.port,
+		user: hyperdrive.user,
+		password: hyperdrive.password,
+		database: hyperdrive.database,
+		dateStrings: true,
+		disableEval: true,
+	});
+	const end = connection.end.bind(connection);
+	return connection;
+}
+
+/**
  * Run one parameterized statement on the proxy pool.
  * Returns the result rows, or the result header for writes.
  * Throws when the statement fails — the caller decides whether that means
@@ -110,6 +137,16 @@ export async function queryProxy<T = ProxyRow>(
 	sql: string,
 	params: ProxyParam[] = []
 ): Promise<T[]> {
+	const hyperdrive = (await getCloudflareBindings())?.HYPERDRIVE;
+	if (hyperdrive) {
+		const connection = await createWorkersConnection(hyperdrive);
+		try {
+			const [rows] = await connection.execute(sql, params);
+			return rows as T[];
+		} finally {
+			await connection.end();
+		}
+	}
 	const [rows] = await getPool().execute(sql, params);
 	return rows as T[];
 }

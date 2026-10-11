@@ -4,9 +4,7 @@ import {
 	hasMarkupSignature,
 	MARKUP_REJECTION_ERROR,
 } from '@/lib/upload-validation';
-import { writeFile, mkdir } from 'fs/promises';
-import { existsSync } from 'fs';
-import path from 'path';
+import { storeFile } from '@/lib/file-store';
 import { v4 as uuidv4 } from 'uuid';
 
 // Allowed file types
@@ -127,19 +125,9 @@ export async function POST(request) {
 		const extension = ALLOWED_TYPES[file.type];
 		const uniqueFilename = `${uuidv4()}${extension}`;
 
-		// Create upload directory if it doesn't exist
-		const uploadDir = path.join(
-			process.cwd(),
-			'private',
-			'message-attachments'
-		);
-		if (!existsSync(uploadDir)) {
-			await mkdir(uploadDir, { recursive: true });
-		}
-
-		// Save file
-		const filePath = path.join(uploadDir, uniqueFilename);
-		await writeFile(filePath, buffer);
+		// Persist through the byte-store. The stored name is a bare UUID — no
+		// user-supplied component reaches the storage key (SEC-10).
+		await storeFile(`private/message-attachments/${uniqueFilename}`, buffer);
 
 		return NextResponse.json({
 			success: true,

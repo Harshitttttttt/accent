@@ -1,7 +1,7 @@
 /**
  * GET /api/reports/project-activities/download
  *
- * Renders the project-activities report as a PDF using puppeteer
+ * Renders the project-activities report as a PDF using headless Chromium
  * (matching the pattern in /api/admin/invoices/download). Server-side
  * data is fetched, filtered, and passed through the same Project →
  * Discipline → Task → Member tree used by the on-screen report.
@@ -16,9 +16,12 @@
  */
 
 import { NextResponse } from 'next/server';
-import puppeteer, { type Browser } from 'puppeteer';
-import chromium from '@sparticuz/chromium';
 import { blockNonLocalRequests } from '@/lib/pdf-request-guard';
+import {
+	launchPdfBrowser,
+	closePdfBrowser,
+	type PdfBrowser,
+} from '@/lib/pdf-browser';
 import { getCurrentUser } from '@/utils/api-permissions';
 import { hasPermission } from '@/utils/rbac';
 import { RESOURCES, PERMISSIONS } from '@/utils/permissions';
@@ -34,7 +37,7 @@ import {
 } from '@/app/reports/project-activities/pdf-template';
 
 export const runtime = 'nodejs';
-// Puppeteer + chromium add >10MB; force Node runtime and skip edge caching.
+// Headless Chromium adds >10MB; force Node runtime and skip edge caching.
 export const dynamic = 'force-dynamic';
 
 interface FieldPermissions {
@@ -149,7 +152,7 @@ export async function GET(request: Request) {
 	const endDate = searchParams.get('end_date') || '';
 	const discipline = searchParams.get('discipline') || 'all';
 
-	let browser: Browser | undefined;
+	let browser: PdfBrowser | undefined;
 	try {
 		const raw = await fetchProjectActivitiesData({ startDate, endDate });
 		const built = buildTree(raw, { startDate, endDate });
@@ -159,9 +162,6 @@ export async function GET(request: Request) {
 		const html = generateReportHTML(tree, kpis, { startDate, endDate });
 		const filename = `${fileBaseFromOptions({ startDate, endDate })}.pdf`;
 
-		// Puppeteer launch: Vercel uses @sparticuz/chromium; local dev uses the
-		// system Chromium.  Same pattern as /api/admin/invoices/download.
-		const isVercel = process.env.VERCEL === '1';
 		const viewport = {
 			deviceScaleFactor: 1,
 			hasTouch: false,
@@ -170,21 +170,11 @@ export async function GET(request: Request) {
 			isMobile: false,
 			width: 1240,
 		};
-		if (isVercel) {
-			browser = await puppeteer.launch({
-				args: chromium.args,
-				defaultViewport: viewport,
-				executablePath: await chromium.executablePath(),
-				headless: true,
-			});
-		} else {
-			browser = await puppeteer.launch({
-				headless: true,
-				defaultViewport: viewport,
-			});
-		}
+
+		browser = await launchPdfBrowser();
 
 		const page = await browser.newPage();
+		await page.setViewport(viewport);
 		await page.emulateMediaType('print');
 		await blockNonLocalRequests(page);
 		await page.setContent(html, { waitUntil: 'load' });
@@ -219,12 +209,6 @@ export async function GET(request: Request) {
 			{ status: 500 }
 		);
 	} finally {
-		if (browser) {
-			try {
-				await browser.close();
-			} catch (closeError) {
-				console.error('Error closing browser:', closeError);
-			}
-		}
+		await closePdfBrowser();
 	}
 }

@@ -1,10 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import fs from 'node:fs';
-import puppeteer from 'puppeteer';
-import chromium from '@sparticuz/chromium';
 import { buildReceiptHTML, ReceiptData } from '@/utils/buildReceiptHTML';
 import { blockNonLocalRequests } from '@/lib/pdf-request-guard';
-import { localPdfBrowserArgs } from '@/lib/pdf-browser-args';
+import { launchPdfBrowser, closePdfBrowser } from '@/lib/pdf-browser';
 import { NextRequest } from 'next/server';
 import {
 	ensurePermission,
@@ -34,34 +31,10 @@ export async function POST(req: NextRequest): Promise<Response> {
 		width: 1920,
 	};
 
-	const isVercel = process.env.VERCEL === '1';
-
-	// Prefer a system Chrome on Windows; on any other host — or when that path
-	// is absent — fall back to puppeteer's bundled Chromium so Linux CI works.
-	const WINDOWS_CHROME =
-		'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-	const localChromePath =
-		process.platform === 'win32' && fs.existsSync(WINDOWS_CHROME)
-			? WINDOWS_CHROME
-			: undefined;
-
-	const browser = await puppeteer.launch(
-		isVercel
-			? {
-					args: chromium.args,
-					defaultViewport: viewport,
-					executablePath: await chromium.executablePath(),
-					headless: true,
-				}
-			: {
-					args: localPdfBrowserArgs(),
-					headless: true,
-					defaultViewport: viewport,
-					...(localChromePath ? { executablePath: localChromePath } : {}),
-				}
-	);
+	const browser = await launchPdfBrowser();
 
 	const page = await browser.newPage();
+	await page.setViewport(viewport);
 
 	const html = buildReceiptHTML(data);
 
@@ -81,7 +54,7 @@ export async function POST(req: NextRequest): Promise<Response> {
 		},
 	});
 
-	await browser.close();
+	await closePdfBrowser();
 
 	return new Response(Buffer.from(pdf), {
 		headers: {

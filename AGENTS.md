@@ -42,7 +42,7 @@ Use simplified technical English, about 80% of ASD-STE100.
 - Say what you did, why, and what you are unsure about.
 - Do not only report that the task is done.
 
-> Next.js 16 App Router (Turbopack default) + React 19 + MySQL. Keep this file compact — every line should be something an agent would miss without help.
+> Next.js 16 App Router (Turbopack default) + React 19 + MySQL, deployed to Cloudflare Workers through `@opennextjs/cloudflare` (ADR-0028). Keep this file compact — every line should be something an agent would miss without help.
 
 ## Stack & Runtime
 
@@ -56,6 +56,7 @@ Use simplified technical English, about 80% of ASD-STE100.
 - Dev: `npm run dev` (Turbopack default). Build/Start: `npm run build` (strict) then `npm run start`.
 - Lint: `npm run lint` (ESLint 9 flat, `src` + `scripts` only). Format: `npm run format` (Prettier: tabs, width 2, single-quote); pre-commit runs `lint-staged: prettier --write` via Husky v9.
 - Typecheck: `npx tsc --noEmit` (no npm script).
+- Workers build: `npm run build:workers` (patches `@opennextjs/aws` for Windows, then `@opennextjs/cloudflare build` → `.open-next/`). Workers deploy: `npm run deploy:workers` (needs `CLOUDFLARE_API_TOKEN`). Local Workers preview: `npm run preview:workers`.
 - Test (watch) `npm test`; Test (once) `npm run test:run`; Coverage `npm run test:coverage`; single file `npx vitest run src/lib/money.test.ts`; single name `npx vitest run -t "ensurePermission"`. `npm run verify` = `lint` + `tsc --noEmit` + `test:run` — the one command a subagent runs.
 - Migrations: `npm run migrate` / `migrate:status` / `migrate:rollback` / `migrate:make -- <name>` — prod DB: `migrate:prod` (+ `:status` / `:rollback`); plain `npm run migrate` targets **dev** only.
 - Order that matters: `npm run verify` before pushing; `npm run build:prod` is the final gate (plain `npm run build` inherits `NODE_ENV=development` from `.env` and fails static prerendering).
@@ -75,18 +76,20 @@ Use simplified technical English, about 80% of ASD-STE100.
 
 ## Conventions That Break If Guessed
 
+- **Workers runtime (ADR-0028)**: the Cloudflare target is not Node. `sharp` (native), `bcrypt` (native) and `puppeteer`/`@sparticuz/chromium` are removed from `package.json`. Uploads rasterize through `@cf-wasm/photon` (`src/lib/image-rasterize.ts`) — PNG/JPEG/WebP/GIF only; SVG, HEIC/HEIF, AVIF, BMP and TIFF are rejected 400. **Import that module lazily**: importing `@cf-wasm/photon` at top level compiles its WASM during isolate startup and workerd answers `Wasm code generation disallowed by embedder`, which makes every `/uploads/*` request 500. Passwords use PBKDF2-SHA256 via `crypto.subtle`; legacy bcrypt hashes verify through `bcryptjs` and upgrade on login (`shouldUpgradeHash`). PDFs render through `@cloudflare/puppeteer` and the `BROWSER` binding (`src/lib/pdf-browser.ts`). MySQL goes through the `HYPERDRIVE` binding — the db pool in `src/utils/database.js` and `src/utils/proxy-db.ts` opens one connection per request, because a Worker-side pool leaks per isolate. **Never run `npx wrangler types`**: the generated `worker-configuration.d.ts` re-declares workerd's DOM types and produces 31 `void is not assignable to Element` errors across the tree. Bindings are typed structurally in `src/utils/cloudflare-runtime.js`.
+- **Shipping a Node module into the Worker bundle**: OpenNext recreates the junctions in Next's standalone output. On Windows an unelevated account has no `SeCreateSymbolicLinkPrivilege`, so `npm run build:workers` runs `scripts/patch-opennext-windows.mjs` first; edit that script rather than removing the patch.
 - **Formatting** (`src/lib/format.js`): use `formatCurrency`/`formatNumber`/`formatDate`/`formatDateTime`/`formatDateInput` (plus `formatDateNumeric`/`formatMonth`) — `en-IN`; returns `"—"` on null/NaN, except `formatDateInput` (returns `''` on falsy/invalid). Never write local formatters.
 - **Styling tokens**: sidebar `var(--sidebar-bg)` (`globals.css:67`, `#4d025b`), primary button `bg-[#64126D]` `hover:bg-[#52105a]`, accent `#7F2487`/`#86288F`. Badges: canonical map in `src/components/EmployeeHub.tsx` (`draft` slate, `pending` amber/yellow, `approved/paid/completed` green, `rejected/overdue` red, `active/sent` blue, `on hold` orange) — per-page tones vary (expenses pages use sky/emerald/rose). `globals.css:316-319` forces `input,textarea,select { color:#000 !important }` — don't override to gray.
 - **Data fetching**: TanStack Query (`QueryProvider` `staleTime:30s retry:1 refetchOnWindowFocus:false`) + `apiGet`/`apiPost`/`apiPut`/`apiDelete` (wrapping `apiSend`) from `src/lib/api-client.js`. Admin forms via `ResourceFormModal.tsx` (TanStack Form + manual Zod `safeParse`; submits via `apiPost`/`apiPut`).
-- **Uploads** (`next.config.ts:114-117`): `/uploads/*` served with `X-Content-Type-Options: nosniff` + `Content-Disposition: attachment`; content is server-rasterized PNGs (`src/app/api/uploads/route.js`).
-- **Heavy packages** excluded from bundling (`next.config.ts:14` `serverExternalPackages`: `mysql2`, `sharp`, `exceljs`, `jspdf`, `@react-pdf/renderer`, `html2canvas`, `docxtemplater`, `pizzip`).
+- **Uploads** (`next.config.ts` headers + `src/app/uploads/[...path]/route.ts`): `/uploads/*` serves `X-Content-Type-Options: nosniff` + `Content-Disposition: attachment`; content is server-rasterized PNGs (`src/app/api/uploads/route.js`). `public/uploads/*` still comes from the static bundle; anything uploaded since deploy is read from the `UPLOADS` KV namespace by the route in `src/app/uploads/`, which must set those two headers itself — a route response does not inherit Next's static `headers()` config.
+- **Heavy packages** excluded from bundling (`next.config.ts:14` `serverExternalPackages`: `exceljs`, `jspdf`, `@react-pdf/renderer`, `html2canvas`, `docxtemplater`, `pizzip`). `mysql2`, `sharp` and `bcrypt` left this list on purpose when they moved off the Workers runtime (ADR-0028).
 
 ## Project Layout (where to look)
 
 - `src/app/` — App Router; mixed `.tsx`/`.jsx` — modern `.tsx` under `reports/`, `masters/deliverables/`, `user/payslips`, `user/leaves`, `employees/leaves`, `projects/[id]/edit/tabs/`; legacy `.jsx` elsewhere (`admin/` is majority `.jsx`).
 - `src/app/api/` — 47 top-level route dirs, 200+ route files; `src/components/ui/` primitives, `src/components/admin/ResourceFormModal.tsx`.
 - `src/utils/` — `database.js`, `api-permissions.js`, `permissions.js`/`rbac.js`, `session.ts`, `activity-logger.ts`, `schema-cache.js`, `payroll-calculator.js`.
-- `src/lib/` — `money.ts`, `format.js`, `api-client.js`, `cn.js`.
+- `src/lib/` — `money.ts`, `format.js`, `api-client.js`, `cn.js`, plus the Cloudflare seams: `cloudflare-runtime` (binding accessor), `file-store.ts` (KV on Workers, disk on Node), `image-rasterize.ts` (photon), `pdf-browser.ts` (Cloudflare browser), `asset-reader.ts` (ASSETS binding for `public/`).
 - `src/context/SessionContext.jsx` (`useSession()/can()`), `src/hooks/` (`useActivityTracker.js` delta heartbeat every 120s → `user_screen_time`).
 - Tests are colocated: `<module>.test.*` sits beside the module/route/page it covers (`src/**/*.test.*`) — there is no central test tree. `migrations/` (knex ESM); `scripts/` (ops + diagnostics: `check-route-auth`, `security:preflight`, `security:poc-reruns`, `security:scrub`, seeding); `docs/SECURITY_AUDIT.md`.
 

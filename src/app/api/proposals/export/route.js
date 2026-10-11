@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { dbConnect } from '@/utils/database';
 import { escapeHtml } from '@/lib/escape-html';
+import { readPublicAsset } from '@/lib/asset-reader';
 import {
 	ensurePermission,
 	RESOURCES,
@@ -37,23 +38,22 @@ export async function GET(request) {
 			rows = r;
 		}
 
-		const fs = await import('fs');
-		const path = await import('path');
-		const templateCandidate = path.join(
-			process.cwd(),
-			'public',
-			'templates',
-			'proposal_format.docx'
-		);
-		const templateFallback = path.join(
-			process.cwd(),
-			'public',
-			'proposal_format.docx'
-		);
-		const templatePath = fs.existsSync(templateCandidate)
-			? templateCandidate
-			: templateFallback;
-		const useTemplate = id && fs.existsSync(templatePath);
+		// The DOCX template is a build asset in public/. Prefer the templates/
+		// copy, then the legacy root copy; if neither is present we fall back to
+		// the HTML export below.
+		let templateContent = null;
+		for (const templateSegments of [
+			['templates', 'proposal_format.docx'],
+			['proposal_format.docx'],
+		]) {
+			try {
+				templateContent = await readPublicAsset(...templateSegments);
+				break;
+			} catch {
+				// Not present at this location — try the next candidate.
+			}
+		}
+		const useTemplate = Boolean(id) && templateContent !== null;
 
 		// ----------------- DOCX TEMPLATE EXPORT -----------------
 		if (useTemplate) {
@@ -64,7 +64,7 @@ export async function GET(request) {
 					(await import('docxtemplater')).default ||
 					(await import('docxtemplater'));
 
-				const content = fs.readFileSync(templatePath);
+				const content = templateContent;
 				const zip = new PizZip(content);
 				const doc = new Docxtemplater(zip, {
 					paragraphLoop: true,
@@ -229,7 +229,7 @@ export async function GET(request) {
 				try {
 					const PizZip =
 						(await import('pizzip')).default || (await import('pizzip'));
-					const content2 = fs.readFileSync(templatePath);
+					const content2 = templateContent;
 					const zip2 = new PizZip(content2);
 					const docXmlPath = 'word/document.xml';
 					let docXml = zip2.file(docXmlPath).asText();

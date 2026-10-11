@@ -1,9 +1,16 @@
 import fs from 'node:fs';
 import dotenv from 'dotenv';
 import mysql from 'mysql2/promise';
+import { getCloudflareBindings } from './cloudflare-runtime.js';
 
-// Load env from .env.local for server-side tools/scripts that may not automatically load it
-dotenv.config();
+// Load env from .env.local for server-side tools/scripts that may not automatically load it.
+// Guarded: on Workers there is no .env to read and dotenv would otherwise walk
+// a virtual filesystem that does not contain the project directory.
+try {
+	dotenv.config();
+} catch {
+	/* Workers and other non-Node runtimes carry their env themselves */
+}
 
 /**
  * Resolve the mysql2 TLS options from the environment (SEC-20).
@@ -44,7 +51,47 @@ export function getDbSslConfig() {
 let pool = globalThis.__dbPool || null;
 let _shutdownRegistered = globalThis.__dbShutdownRegistered || false;
 
+/**
+ * Cloudflare Workers connection.
+ *
+ * Workers has no long-lived process, so a Node-style pool would leak one
+ * connection per isolate and per request. Hyperdrive owns the real pool
+ * upstream, which makes a per-request connection the documented pattern.
+ *
+ * `disableEval` is required: mysql2 normally builds its SQL parser with eval(),
+ * which workerd forbids. The static parser is equivalent.
+ *
+ * @param {import('@cloudflare/workers-types').Hyperdrive} hyperdrive
+ * @returns {Promise<import('mysql2/promise').Connection>}
+ */
+async function createWorkersConnection(hyperdrive) {
+	const connection = await mysql.createConnection({
+		host: hyperdrive.host,
+		port: hyperdrive.port,
+		user: hyperdrive.user,
+		password: hyperdrive.password,
+		database: hyperdrive.database,
+		dateStrings: true,
+		disableEval: true,
+	});
+	// release() must not be a no-op here: the connection is not pooled, so
+	// releasing means closing. end() already closes, so alias it in both
+	// directions and keep the idempotence every caller's finally block expects.
+	const end = connection.end.bind(connection);
+	let closed = false;
+	const close = async () => {
+		if (closed) return;
+		closed = true;
+		await end();
+	};
+	connection.end = close;
+	connection.release = close;
+	return connection;
+}
+
 export async function dbConnect() {
+	const hyperdrive = (await getCloudflareBindings())?.HYPERDRIVE;
+	if (hyperdrive) return createWorkersConnection(hyperdrive);
 	const host = process.env.DB_HOST;
 	const port = Number(process.env.DB_PORT);
 	const env = process.env.NODE_ENV || 'development';
@@ -330,6 +377,17 @@ export async function withTransaction(fn) {
  * @returns {Promise<[any[], any]>}
  */
 export async function query(sql, params = []) {
+	const hyperdrive = (await getCloudflareBindings())?.HYPERDRIVE;
+	if (hyperdrive) {
+		// No pool on Workers: open one connection per call and close it in the
+		// same turn, exactly as the Hyperdrive pattern prescribes.
+		const conn = await createWorkersConnection(hyperdrive);
+		try {
+			return await conn.execute(sql, params);
+		} finally {
+			await conn.end();
+		}
+	}
 	await ensurePool();
 	return pool.execute(sql, params);
 }

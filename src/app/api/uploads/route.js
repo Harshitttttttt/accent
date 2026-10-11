@@ -1,6 +1,3 @@
-import fs from 'fs';
-import path from 'path';
-import sharp from 'sharp';
 import {
 	MAX_FILE_SIZE,
 	MAX_REQUEST_BYTES,
@@ -11,11 +8,17 @@ import {
 	RESOURCES,
 	PERMISSIONS,
 } from '@/utils/api-permissions';
-
-// SEC-02: cap sharp decode to ~40 megapixels. Covers large camera photos
-// (e.g. 48MP HEIC) while rejecting SVG raster bombs / decompression bombs
-// whose decode would exhaust memory.
-const MAX_DECODED_PIXELS = 40_000_000;
+import {
+	fileExists,
+	KV_MAX_VALUE_BYTES,
+	readFileBytes,
+	storeFile,
+} from '@/lib/file-store';
+import {
+	MAX_THUMB_EDGE,
+	MAX_UPLOAD_EDGE,
+	rasterizeToPng,
+} from '@/lib/image-rasterize';
 
 export async function POST(request) {
 	// RBAC check - require at least projects:update for uploading files
@@ -49,17 +52,17 @@ export async function POST(request) {
 		}
 
 		// sanitize filename (allow only alphanum, dot, underscore, hyphen)
-		const safeName = path.basename(filename).replace(/[^a-zA-Z0-9._-]/g, '_');
-		const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
-		if (!fs.existsSync(uploadsDir))
-			fs.mkdirSync(uploadsDir, { recursive: true });
+		const safeName = filename
+			.split(/[\\/]/)
+			.pop()
+			.replace(/[^a-zA-Z0-9._-]/g, '_');
 
 		const timestamp = Date.now();
 
 		// decode base64 (strip data: prefix if present)
 		const cleaned = b64.replace(/^data:.*;base64,/, '');
 
-		// C2: cap the decoded size from the string length before Buffer.from
+		// C2: cap the decoded size from the string length before the decode
 		// allocates the buffer (incl. chunked bodies without Content-Length).
 		if (estimateBase64DecodedBytes(cleaned) > MAX_FILE_SIZE) {
 			return Response.json(
@@ -70,24 +73,19 @@ export async function POST(request) {
 
 		const buf = Buffer.from(cleaned, 'base64');
 
+		const base = safeName.replace(/\.[^.]+$/, '');
+		const finalName = `${timestamp}_${base}.png`;
+		const thumbName = `${timestamp}_${base}-thumb.png`;
+		const fileKey = `uploads/${finalName}`;
+		const thumbKey = `uploads/${thumbName}`;
+
 		// SEC-02: never persist raw upload bytes. Every upload is rasterized to
-		// a fresh PNG via sharp — SVG input is rendered by librsvg, which does
-		// not execute scripts or fetch external resources, so no scriptable
-		// content (SVG, HTML, JS, polyglots) is ever written under public/uploads/.
-		// Anything that is not a decodable raster image is rejected (400).
-		// limitInputPixels caps decode memory and rejects SVG raster bombs.
+		// a fresh PNG, so no scriptable content (SVG, HTML, JS, polyglots) is
+		// ever stored. Anything that is not a decodable raster image is
+		// rejected (400).
 		let pngBuffer;
 		try {
-			pngBuffer = await sharp(buf, { limitInputPixels: MAX_DECODED_PIXELS })
-				.rotate() // auto-orient from EXIF
-				.resize({
-					width: 1200,
-					height: 1200,
-					fit: 'inside',
-					withoutEnlargement: true,
-				})
-				.png({ compressionLevel: 9, adaptiveFiltering: true })
-				.toBuffer();
+			pngBuffer = await rasterizeToPng(new Uint8Array(buf), MAX_UPLOAD_EDGE);
 		} catch {
 			return Response.json(
 				{
@@ -99,25 +97,20 @@ export async function POST(request) {
 			);
 		}
 
-		const base = safeName.replace(/\.[^.]+$/, '');
-		const finalName = `${timestamp}_${base}.png`;
-		const outPath = path.join(uploadsDir, finalName);
-		fs.writeFileSync(outPath, pngBuffer);
+		if (pngBuffer.length > KV_MAX_VALUE_BYTES) {
+			return Response.json(
+				{ success: false, error: 'File size exceeds 20MB limit' },
+				{ status: 413 }
+			);
+		}
 
-		// Create a thumbnail
+		await storeFile(fileKey, pngBuffer);
+
+		// Create a thumbnail. A failure here is not fatal — the main upload is
+		// already stored and clients render it without a thumbnail.
 		try {
-			const thumbPng = await sharp(pngBuffer)
-				.resize({
-					width: 256,
-					height: 256,
-					fit: 'inside',
-					withoutEnlargement: true,
-				})
-				.png({ compressionLevel: 9 })
-				.toBuffer();
-			const thumbName = `${timestamp}_${base}-thumb.png`;
-			const thumbPath = path.join(uploadsDir, thumbName);
-			fs.writeFileSync(thumbPath, thumbPng);
+			const thumbPng = await rasterizeToPng(pngBuffer, MAX_THUMB_EDGE);
+			await storeFile(thumbKey, thumbPng);
 		} catch {}
 
 		const baseForUrl = finalName.replace(/\.[^.]+$/, '');
@@ -134,4 +127,19 @@ export async function POST(request) {
 			{ status: 500 }
 		);
 	}
+}
+
+/** Whether a stored upload exists, used by the /uploads read route. */
+export async function hasUpload(name) {
+	return (
+		/^[a-zA-Z0-9._-]+$/.test(name) && (await fileExists(`uploads/${name}`))
+	);
+}
+
+/** Read a stored upload by name, or null when it is absent. */
+export async function readUpload(name) {
+	if (!/^[a-zA-Z0-9._-]+$/.test(name)) return null;
+	const key = `uploads/${name}`;
+	if (!(await fileExists(key))) return null;
+	return readFileBytes(key);
 }

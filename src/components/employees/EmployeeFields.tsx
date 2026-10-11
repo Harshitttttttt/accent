@@ -187,7 +187,7 @@ export default function EmployeeFields({
 						Profile Photo
 						<input
 							type="file"
-							accept="image/*,.heic,.heif,.bmp"
+							accept="image/png,image/jpeg,image/webp,image/gif"
 							disabled={readOnly || photoUploading}
 							onChange={(event: ChangeEvent<HTMLInputElement>) => {
 								const file = event.target.files?.[0];

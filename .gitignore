@@ -142,6 +142,10 @@ web_modules/
 .next
 out
 
+# OpenNext Cloudflare build output
+.open-next
+worker-configuration.d.ts
+
 # Nuxt.js build / generate output
 .nuxt
 dist
@@ -211,3 +215,6 @@ vite.config.ts.timestamp-*
 
 # Pi agent runtime state (background task output, session scratch)
 .pi/
+
+# Wrangler local dev state
+.wrangler

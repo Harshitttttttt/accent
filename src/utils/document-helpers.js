@@ -5,9 +5,7 @@ import {
 	ensurePermission,
 } from '@/utils/api-permissions';
 import { query } from '@/utils/database';
-import { readFile } from 'fs/promises';
-import { existsSync } from 'fs';
-import path from 'path';
+import { readFileBytes, fileExists } from '@/lib/file-store';
 import { NextResponse } from 'next/server';
 
 export const ENTITY_RESOURCE_MAP = {
@@ -93,6 +91,17 @@ export async function verifyEntityExists(entityType, entityId) {
 }
 
 /**
+ * Last path segment of a POSIX/Windows path. Stands in for path.basename so a
+ * stored file name can be reduced to a bare component before it becomes a
+ * byte-store key (SEC-10 Path Traversal prevention).
+ */
+function basename(name) {
+	if (typeof name !== 'string') return '';
+	const cut = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+	return cut === -1 ? name : name.slice(cut + 1);
+}
+
+/**
  * Common handler for authenticated document downloads
  */
 export async function handleDocumentDownload(request, docId) {
@@ -153,42 +162,36 @@ export async function handleDocumentDownload(request, docId) {
 		);
 	}
 
-	// 4. Safely locate file on disk (SEC-10 Path Traversal prevention)
-	const safeFileName = path.basename(doc.file_name || doc.file_url);
-	const privateFilePath = path.join(
-		process.cwd(),
-		'private',
-		'documents',
-		safeFileName
-	);
+	// 4. Resolve the byte-store key (SEC-10 Path Traversal prevention). The
+	// store is keyed by POSIX-style relative paths; private documents first,
+	// then the legacy public/documents location for pre-port uploads.
+	const safeFileName = basename(doc.file_name || doc.file_url);
+	const privateKey = `private/documents/${safeFileName}`;
+	const legacyKey = `public/uploads/documents/${safeFileName}`;
 
-	let targetFilePath = null;
-	if (existsSync(privateFilePath)) {
-		targetFilePath = privateFilePath;
-	} else {
-		// Fallback for legacy uploads in public directory
-		const publicFilePath = path.join(
-			process.cwd(),
-			'public',
-			'uploads',
-			'documents',
-			safeFileName
-		);
-		if (existsSync(publicFilePath)) {
-			targetFilePath = publicFilePath;
-		}
+	let key = null;
+	if (await fileExists(privateKey)) {
+		key = privateKey;
+	} else if (await fileExists(legacyKey)) {
+		key = legacyKey;
 	}
 
-	if (!targetFilePath) {
+	if (key === null) {
 		return NextResponse.json(
 			{ success: false, error: 'File not found on server' },
 			{ status: 404 }
 		);
 	}
 
-	// 5. Read file and serve with strict security headers (SEC-06 & SEC-24)
+	// 5. Read bytes and serve with strict security headers (SEC-06 & SEC-24)
 	try {
-		const fileBuffer = await readFile(targetFilePath);
+		const fileBuffer = await readFileBytes(key);
+		if (fileBuffer === null) {
+			return NextResponse.json(
+				{ success: false, error: 'File not found on server' },
+				{ status: 404 }
+			);
+		}
 		const safeOriginalName = (doc.original_name || safeFileName).replace(
 			/["\r\n]/g,
 			'_'

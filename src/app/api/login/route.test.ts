@@ -17,6 +17,7 @@ vi.mock('@/utils/database', () => ({
 vi.mock('@/utils/password', () => ({
 	verifyPassword: vi.fn().mockResolvedValue(true),
 	needsRehash: vi.fn(() => false),
+	shouldUpgradeHash: vi.fn(() => false),
 	hashPassword: vi.fn().mockResolvedValue('new-hash'),
 }));
 

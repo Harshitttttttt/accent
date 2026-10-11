@@ -8,7 +8,7 @@
  * origins (`localhost`, `127.0.0.1`, `[::1]`) may load; everything else is
  * aborted.
  */
-import type { Page } from 'puppeteer';
+import type { Page } from '@cloudflare/puppeteer';
 
 const LOCAL_PROTOCOLS: Record<string, true> = {
 	'about:': true,

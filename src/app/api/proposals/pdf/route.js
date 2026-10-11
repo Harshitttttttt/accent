@@ -9,8 +9,7 @@ import {
 	pdf,
 	Image,
 } from '@react-pdf/renderer';
-import fs from 'fs';
-import path from 'path';
+import { readPublicAsset } from '@/lib/asset-reader';
 import {
 	ensurePermission,
 	RESOURCES,
@@ -76,7 +75,7 @@ export async function GET(request) {
 		}
 
 		// Generate the PDF document with all proposals
-		const pdfDoc = createPDFDocument(proposals);
+		const pdfDoc = await createPDFDocument(proposals);
 
 		// Generate PDF buffer
 		const pdfBuffer = await pdf(pdfDoc).toBuffer();
@@ -314,16 +313,15 @@ const styles = StyleSheet.create({
 	},
 });
 
-function createPDFDocument(proposals) {
+async function createPDFDocument(proposals) {
 	// Handle both single proposal and array of proposals
 	const proposalArray = Array.isArray(proposals) ? proposals : [proposals];
 	const currentDate = new Date().toLocaleDateString('en-GB');
 
-	// Load logo as base64
-	const logoPath = path.join(process.cwd(), 'public', 'accent-logo.png');
+	// Load logo as base64 (a build asset in public/, read via the asset reader)
 	let logoBase64 = '';
 	try {
-		const logoBuffer = fs.readFileSync(logoPath);
+		const logoBuffer = await readPublicAsset('accent-logo.png');
 		logoBase64 = `data:image/png;base64,${logoBuffer.toString('base64')}`;
 	} catch (error) {
 		console.error('Error loading logo:', error);

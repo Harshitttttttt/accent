@@ -51,7 +51,7 @@ export async function GET(request) {
 		}
 
 		// For now, return JSON data
-		// In production, you would generate a PDF using a library like puppeteer, pdfkit, or react-pdf
+		// In production, you would generate a PDF using a library like pdfkit or react-pdf
 		return NextResponse.json({
 			success: true,
 			message: 'PDF generation not yet implemented. Transaction data returned.',

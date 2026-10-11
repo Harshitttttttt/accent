@@ -8,15 +8,23 @@ import {
 	MAX_FILE_SIZE,
 	verifyEntityExists,
 } from '@/utils/document-helpers';
-import { writeFile, mkdir, unlink } from 'fs/promises';
-import { existsSync } from 'fs';
 import {
 	hasMarkupSignature,
 	MARKUP_REJECTION_ERROR,
 } from '@/lib/upload-validation';
-import path from 'path';
+import { storeFile, deleteFileBytes } from '@/lib/file-store';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '@/utils/database';
+
+/**
+ * Last path segment of a POSIX/Windows path (path.basename replacement) used
+ * to reduce an original file name to a bare component (SEC-10 Path Traversal).
+ */
+function basename(name) {
+	if (typeof name !== 'string') return '';
+	const cut = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+	return cut === -1 ? name : name.slice(cut + 1);
+}
 
 /**
  * POST /api/document-upload
@@ -121,18 +129,12 @@ export async function POST(request) {
 		const docId = uuidv4();
 		const uniqueFilename = `${docId}${extension}`;
 
-		// Store in private directory (SEC-06)
-		const uploadDir = path.join(process.cwd(), 'private', 'documents');
-		if (!existsSync(uploadDir)) {
-			await mkdir(uploadDir, { recursive: true });
-		}
-
-		// Save file to disk
-		const filePath = path.join(uploadDir, uniqueFilename);
-		await writeFile(filePath, buffer);
+		// Persist through the byte-store (SEC-06). The key is a bare UUID file
+		// name under private/documents — never the entity id (SEC-10).
+		await storeFile(`private/documents/${uniqueFilename}`, buffer);
 
 		const downloadUrl = `/api/document-upload/download?id=${docId}`;
-		const safeOriginalName = path.basename(fileName);
+		const safeOriginalName = basename(fileName);
 
 		// Insert DB record
 		await query(
@@ -328,32 +330,15 @@ export async function DELETE(request) {
 		// Delete from DB
 		await query(`DELETE FROM entity_documents WHERE id = ?`, [docId]);
 
-		// Safely delete file from disk (SEC-10 Path Traversal prevention)
+		// Safely delete stored bytes (SEC-10 Path Traversal prevention). The
+		// byte-store delete is silent on missing keys, so removing both the
+		// private copy and any legacy public copy is safe.
 		try {
-			const safeFileName = path.basename(doc.file_name || doc.file_url);
-			const privateFilePath = path.join(
-				process.cwd(),
-				'private',
-				'documents',
-				safeFileName
-			);
-			if (existsSync(privateFilePath)) {
-				await unlink(privateFilePath);
-			} else {
-				// Check legacy public path if it existed
-				const publicFilePath = path.join(
-					process.cwd(),
-					'public',
-					'uploads',
-					'documents',
-					safeFileName
-				);
-				if (existsSync(publicFilePath)) {
-					await unlink(publicFilePath);
-				}
-			}
+			const safeFileName = basename(doc.file_name || doc.file_url);
+			await deleteFileBytes(`private/documents/${safeFileName}`);
+			await deleteFileBytes(`public/uploads/documents/${safeFileName}`);
 		} catch {
-			// File may already be deleted on disk — ignore unlink errors
+			// Byte-store delete is silent on missing keys — ignore errors
 		}
 
 		return NextResponse.json({

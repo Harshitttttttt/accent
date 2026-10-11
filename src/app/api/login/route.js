@@ -2,7 +2,7 @@ import { dbConnect } from '@/utils/database';
 import { NextResponse } from 'next/server';
 import { logActivity } from '@/utils/activity-logger';
 import { getDefaultPermissionsForLevel, mergePermissions } from '@/utils/rbac';
-import { verifyPassword, needsRehash, hashPassword } from '@/utils/password';
+import { verifyPassword, shouldUpgradeHash, hashPassword } from '@/utils/password';
 import { createSession, SESSION_TTL_SECONDS } from '@/utils/session';
 
 // Helper to safely parse JSON
@@ -90,8 +90,8 @@ export async function POST(req) {
 				const valid = await verifyPassword(password, storedHash);
 				if (!valid) {
 					rows = [];
-				} else if (needsRehash(storedHash)) {
-					// Auto-upgrade legacy plaintext to bcrypt
+				} else if (shouldUpgradeHash(storedHash)) {
+					// Auto-upgrade legacy plaintext and legacy bcrypt to PBKDF2
 					const newHash = await hashPassword(password);
 					db.execute('UPDATE users SET password_hash = ? WHERE id = ?', [
 						newHash,
